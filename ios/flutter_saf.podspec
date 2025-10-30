@@ -6,7 +6,7 @@ Pod::Spec.new do |s|
   s.name             = 'flutter_saf'
   s.version          = '0.0.1'
   s.summary          = 'A Flutter plugin for Storage Access Framework'
-  s.description      = <<-DESC A Flutter plugin for Storage Access Framework DESC
+  s.description      = 'A Flutter plugin for Storage Access Framework'
   s.homepage         = 'https://github.com/ojprolab/flutter_saf'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'OJPro Lab' => 'contact@ojprolab.com' }

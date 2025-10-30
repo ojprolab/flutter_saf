@@ -1,4 +1,5 @@
 import 'package:flutter_saf/models/saf_directory.dart';
+import 'package:flutter_saf/models/saf_file.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'flutter_saf_method_channel.dart';
@@ -26,5 +27,13 @@ abstract class FlutterSafPlatform extends PlatformInterface {
 
   Future<SAFDirectory?> pickDirectory() {
     throw UnimplementedError('pickDirectory() has not been implemented.');
+  }
+
+  Future<List<SAFFile>?> scanDirectory(
+    String uri, {
+    List<String>? extensions,
+    bool recursive = true,
+  }) {
+    throw UnimplementedError('scanDirectory() has not been implemented.');
   }
 }
