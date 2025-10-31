@@ -64,4 +64,26 @@ class MethodChannelFlutterSaf extends FlutterSafPlatform {
       );
     }
   }
+
+  @override
+  Future<Uint8List?> readFileBytes(String uri) async {
+    try {
+      final fileBytes = await methodChannel.invokeMethod<Uint8List?>(
+        'readFileBytes',
+        <String, dynamic>{
+          'uri': uri,
+        },
+      );
+
+      if (fileBytes == null) return null;
+
+      return fileBytes;
+    } on PlatformException catch (exception) {
+      throw SAFException(
+        code: exception.code,
+        message: exception.message ?? 'Unknown error',
+        details: exception.details,
+      );
+    }
+  }
 }

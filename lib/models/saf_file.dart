@@ -1,4 +1,5 @@
 class SAFFile {
+  final String uri;
   final String name;
   final String path;
   final int size;
@@ -6,6 +7,7 @@ class SAFFile {
   final DateTime lastModifiedAt;
 
   SAFFile({
+    required this.uri,
     required this.name,
     required this.path,
     required this.size,
@@ -15,6 +17,7 @@ class SAFFile {
 
   factory SAFFile.fromMap(Map<String, dynamic> map) {
     return SAFFile(
+      uri: map['uri'] as String,
       name: map['name'] as String,
       path: map['path'] as String,
       size: map['size'] as int,
@@ -25,6 +28,7 @@ class SAFFile {
 
   Map<String, dynamic> toMap() {
     return {
+      'uri': uri,
       'name': name,
       'path': path,
       'size': size,

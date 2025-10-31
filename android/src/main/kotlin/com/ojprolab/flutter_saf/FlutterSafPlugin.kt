@@ -32,6 +32,7 @@ class FlutterSafPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, PluginR
     when (call.method) {
       "pickDirectory" -> pickDirectory(result)
       "scanDirectory" -> scanDirectory(call, result)
+      "readFileBytes" -> readFileBytes(call, result)
       else -> result.notImplemented()
     }
   }
@@ -155,6 +156,35 @@ class FlutterSafPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, PluginR
       } else if (file.isDirectory && recursive) {
         scanFiles(file, extensions, recursive, result)
       }
+    }
+  }
+
+  private fun readFileBytes(call: MethodCall, result: MethodChannel.Result) {
+    val fileUri = call.argument<String>("uri")
+
+    if (fileUri == null) {
+      result.error("INVALID_ARGUMENTS", "uri is required", null)
+      return
+    }
+
+    try {
+      val uri = Uri.parse(fileUri)
+      val contentResolver = activity?.contentResolver
+
+      if (contentResolver == null) {
+        result.error("NO_CONTEXT", "Content resolver not available", null)
+        return
+      }
+
+      contentResolver.openInputStream(uri)?.use { inputStream ->
+        val bytes = inputStream.readBytes()
+        result.success(bytes)
+      } ?: result.error("READ_ERROR", "Failed to open input stream", null)
+
+    } catch (e: SecurityException) {
+      result.error("PERMISSION_ERROR", "Permission denied: ${e.message}", null)
+    } catch (e: Exception) {
+      result.error("READ_ERROR", "Error reading file: ${e.message}", null)
     }
   }
 

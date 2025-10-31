@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_saf/models/saf_directory.dart';
 import 'package:flutter_saf/models/saf_file.dart';
 
@@ -20,5 +22,10 @@ class FlutterSaf {
       extensions: extensions,
       recursive: recursive,
     );
+  }
+
+  /// Read file bytes
+  Future<Uint8List?> readFileBytes(String uri) {
+    return FlutterSafPlatform.instance.readFileBytes(uri);
   }
 }

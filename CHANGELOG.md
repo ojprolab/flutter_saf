@@ -1,3 +1,8 @@
+## 0.0.3
+
+- add `readFileBytes`
+- add missing uri from `SAFFile`
+
 ## 0.0.2
 
 - add `scanDirectory`

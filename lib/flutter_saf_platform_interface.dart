@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_saf/models/saf_directory.dart';
 import 'package:flutter_saf/models/saf_file.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -35,5 +37,9 @@ abstract class FlutterSafPlatform extends PlatformInterface {
     bool recursive = true,
   }) {
     throw UnimplementedError('scanDirectory() has not been implemented.');
+  }
+
+  Future<Uint8List?> readFileBytes(String uri) {
+    throw UnimplementedError('readFileBytes() has not been implemented.');
   }
 }
