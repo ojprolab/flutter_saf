@@ -1,2 +1,3 @@
 # flutter_saf
-SAF support for android and ios
+
+Privacy-first storage access plugin for ios and android
