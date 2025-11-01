@@ -1,7 +1,7 @@
 name: flutter_saf
-description: "A new Flutter plugin project."
+description: "Privacy-first storage access plugin for ios and android"
 version: 0.0.3
-homepage: https://dart.dev/ # TODO: to be changed
+homepage: https://github.com/ojprolab/flutter_saf
 
 environment:
   sdk: ^3.6.1
