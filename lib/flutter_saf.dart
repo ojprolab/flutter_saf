@@ -15,7 +15,7 @@ class FlutterSaf {
   Future<List<SAFFile>?> scanDirectory(
     String uri, {
     List<String>? extensions,
-    bool recursive = true,
+    bool recursive = false,
   }) {
     return FlutterSafPlatform.instance.scanDirectory(
       uri,
@@ -27,5 +27,10 @@ class FlutterSaf {
   /// Read file bytes
   Future<Uint8List?> readFileBytes(String uri) {
     return FlutterSafPlatform.instance.readFileBytes(uri);
+  }
+
+  /// Read file bytes
+  Future<bool?> checkAccess(String uri) {
+    return FlutterSafPlatform.instance.checkAccess(uri);
   }
 }

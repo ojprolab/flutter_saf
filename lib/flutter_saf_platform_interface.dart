@@ -42,4 +42,8 @@ abstract class FlutterSafPlatform extends PlatformInterface {
   Future<Uint8List?> readFileBytes(String uri) {
     throw UnimplementedError('readFileBytes() has not been implemented.');
   }
+
+  Future<bool?> checkAccess(String uri) {
+    throw UnimplementedError('checkAccess() has not been implemented.');
+  }
 }

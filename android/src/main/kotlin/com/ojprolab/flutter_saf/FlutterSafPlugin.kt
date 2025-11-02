@@ -33,6 +33,7 @@ class FlutterSafPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, PluginR
       "pickDirectory" -> pickDirectory(result)
       "scanDirectory" -> scanDirectory(call, result)
       "readFileBytes" -> readFileBytes(call, result)
+      "checkAccess"   -> checkAccess(call, result)
       else -> result.notImplemented()
     }
   }
@@ -74,7 +75,9 @@ class FlutterSafPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, PluginR
             val directoryInfo = mapOf(
               "uri" to uri.toString(),
               "name" to (documentFile?.name ?: ""),
-              "path" to uri.path
+              "path" to uri.path,
+              "bookmarkKey" to uri.toString(),
+              "storageType" to "android"
             )
             pendingResult?.success(directoryInfo)
           } catch (e: Exception) {
@@ -186,6 +189,30 @@ class FlutterSafPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, PluginR
     } catch (e: Exception) {
       result.error("READ_ERROR", "Error reading file: ${e.message}", null)
     }
+  }
+
+  private fun checkAccess(call: MethodCall, result: MethodChannel.Result) {
+      val directoryUri = call.argument<String>("uri")
+
+      if (directoryUri == null) {
+          result.success(false)
+          return
+      }
+
+      try {
+          val uri = Uri.parse(directoryUri)
+          val ctx = context ?: activity
+
+          if (ctx == null) {
+                result.success(false)
+                return
+            }
+
+          val documentFile =  DocumentFile.fromTreeUri(ctx, uri)
+          result.success(documentFile?.exists() == true && documentFile.canRead())
+      } catch (e: Exception) {
+          result.success(false)
+      }
   }
 
   private fun savePersistedUri(uri: Uri) {

@@ -86,4 +86,24 @@ class MethodChannelFlutterSaf extends FlutterSafPlatform {
       );
     }
   }
+
+  @override
+  Future<bool?> checkAccess(String uri) async {
+    try {
+      final hasAccess = await methodChannel.invokeMethod<bool?>(
+        'checkAccess',
+        <String, dynamic>{
+          'uri': uri,
+        },
+      );
+
+      return hasAccess;
+    } on PlatformException catch (exception) {
+      throw SAFException(
+        code: exception.code,
+        message: exception.message ?? 'Unknown error',
+        details: exception.details,
+      );
+    }
+  }
 }

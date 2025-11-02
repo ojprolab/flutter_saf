@@ -26,9 +26,34 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
             scanDirectory(call: call, result: result)
         case "readFileBytes":
             readFileBytes(call: call, result: result)
+        case "checkAccess":
+            checkAccess(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    private func extractStableKey(from url: URL) -> (key: String, storageType: String) {
+        let fullPath = url.standardizedFileURL.path
+
+        if let range = fullPath.range(of: "/com~apple~CloudDocs/") {
+            let key = String(fullPath[range.upperBound...])
+            return (key.isEmpty ? fullPath : key, "icloud")
+        }
+
+        if let range = fullPath.range(of: "/File Provider Storage/") {
+            let key = String(fullPath[range.upperBound...])
+            return (key.isEmpty ? fullPath : key, "local")
+        }
+
+        if let range = fullPath.range(of: "/Documents/") {
+            let key = String(fullPath[range.upperBound...])
+            return (key.isEmpty ? fullPath : key, "documents")
+        }
+
+        let components = url.pathComponents
+        let fallbackKey = components.suffix(min(2, components.count)).joined(separator: "/")
+        return (fallbackKey, "unknown")
     }
 
     private func pickDirectory(result: @escaping FlutterResult) {
@@ -89,13 +114,16 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                 relativeTo: nil
             )
 
-            let standardizedPath = url.standardizedFileURL.path
-            saveBookmark(bookmarkData, for: standardizedPath)
+            let (stableKey, storageType) = extractStableKey(from: url)
+            let finalKey = "\(storageType):\(stableKey)"
+            saveBookmark(bookmarkData, for: finalKey)
 
             let directoryInfo: [String: Any] = [
                 "uri": url.absoluteString,
                 "name": url.lastPathComponent,
-                "path": standardizedPath,
+                "path": url.standardizedFileURL.path,
+                "bookmarkKey": finalKey,
+                "storageType": storageType,
             ]
 
             pendingResult?(directoryInfo)
@@ -166,38 +194,36 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
         }
     }
 
-    private func saveBookmark(_ bookmarkData: Data, for path: String) {
+    private func saveBookmark(_ bookmarkData: Data, for key: String) {
         var bookmarks =
             UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
-        bookmarks[path] = bookmarkData
+        bookmarks[key] = bookmarkData
         UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
     }
 
     private func findParentDirectoryURL(for fileURL: URL) -> URL? {
         let bookmarks =
             UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
-        let filePath = fileURL.standardizedFileURL.path
+        let (fileStableKey, storageType) = extractStableKey(from: fileURL)
+        let fileFinalKey = "\(storageType):\(fileStableKey)"
 
-        var bestMatch: (url: URL, pathLength: Int)?
+        var bestMatch: (url: URL, keyLength: Int)?
 
-        for (directoryPath, bookmarkData) in bookmarks {
+        for (savedKey, bookmarkData) in bookmarks {
             var isStale = false
-            guard let directoryURL = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withoutUI,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else { continue }
+            guard
+                let directoryURL = try? URL(
+                    resolvingBookmarkData: bookmarkData,
+                    options: .withoutUI,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                )
+            else { continue }
 
-            let standardizedDirectoryPath = directoryURL.standardizedFileURL.path
-
-            if filePath.hasPrefix(standardizedDirectoryPath + "/")
-                || filePath == standardizedDirectoryPath
-            {
-                let pathLength = standardizedDirectoryPath.count
-
-                if bestMatch == nil || pathLength > bestMatch!.pathLength {
-                    bestMatch = (directoryURL, pathLength)
+            if fileFinalKey.hasPrefix(savedKey + "/") || fileFinalKey == savedKey {
+                let keyLength = savedKey.count
+                if bestMatch == nil || keyLength > bestMatch!.keyLength {
+                    bestMatch = (directoryURL, keyLength)
                 }
             }
 
@@ -210,7 +236,7 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                         includingResourceValuesForKeys: nil,
                         relativeTo: nil
                     ) {
-                        saveBookmark(newBookmarkData, for: standardizedDirectoryPath)
+                        saveBookmark(newBookmarkData, for: savedKey)
                     }
                 }
             }
@@ -325,5 +351,30 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
             }
         }
         return nil
+    }
+
+    private func checkAccess(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+            let directoryUri = args["uri"] as? String
+        else {
+            result(false)
+            return
+        }
+
+        let directoryURL: URL
+        if directoryUri.hasPrefix("file://") {
+            guard let url = URL(string: directoryUri) else {
+                result(false)
+                return
+            }
+            directoryURL = url
+        } else {
+            directoryURL = URL(fileURLWithPath: directoryUri)
+        }
+
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: directoryURL.path, isDirectory: &isDirectory)
+        result(exists && isDirectory.boolValue)
     }
 }
