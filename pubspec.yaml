@@ -1,6 +1,6 @@
 name: flutter_saf
 description: "Privacy-first storage access plugin for ios and android"
-version: 0.0.4
+version: 0.0.5
 homepage: https://github.com/ojprolab/flutter_saf
 
 environment:

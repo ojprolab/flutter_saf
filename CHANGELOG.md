@@ -1,8 +1,17 @@
+# ChangeLogs
+
+## 0.0.5
+
+- removed storageType support
+- run scan in queue
+- improved the parent bookmark lookup
+- made the checkAccess better at dealing with bookmakr
+- checkaccess now works with file/directory
+
 ## 0.0.4
 
 - add `checkAccess`
 - improve ios bookmarks to support diffrent storage providers
-
 
 ## 0.0.3
 
