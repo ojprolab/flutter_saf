@@ -33,16 +33,20 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
         }
     }
 
-    // MARK: - Pick Directory
-
     private func pickDirectory(result: @escaping FlutterResult) {
         guard let viewController = viewController else {
-            result(FlutterError(code: "NO_VIEW_CONTROLLER", message: "No view controller available", details: nil))
+            result(
+                FlutterError(
+                    code: "NO_VIEW_CONTROLLER", message: "No view controller available",
+                    details: nil))
             return
         }
 
         if pendingResult != nil {
-            result(FlutterError(code: "ALREADY_ACTIVE", message: "Another pick operation is in progress", details: nil))
+            result(
+                FlutterError(
+                    code: "ALREADY_ACTIVE", message: "Another pick operation is in progress",
+                    details: nil))
             return
         }
 
@@ -52,7 +56,8 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
         if #available(iOS 14.0, *) {
             documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
         } else {
-            documentPicker = UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
+            documentPicker = UIDocumentPickerViewController(
+                documentTypes: ["public.folder"], in: .open)
         }
 
         documentPicker.delegate = self
@@ -62,15 +67,20 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
         viewController.present(documentPicker, animated: true)
     }
 
-    public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    public func documentPicker(
+        _ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]
+    ) {
         guard let url = urls.first else {
-            pendingResult?(FlutterError(code: "INVALID_URL", message: "No URL selected", details: nil))
+            pendingResult?(
+                FlutterError(code: "INVALID_URL", message: "No URL selected", details: nil))
             pendingResult = nil
             return
         }
 
         guard url.startAccessingSecurityScopedResource() else {
-            pendingResult?(FlutterError(code: "ACCESS_DENIED", message: "Cannot access directory", details: nil))
+            pendingResult?(
+                FlutterError(
+                    code: "ACCESS_DENIED", message: "Cannot access directory", details: nil))
             pendingResult = nil
             return
         }
@@ -90,29 +100,37 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                 "uri": url.absoluteString,
                 "name": url.lastPathComponent,
                 "path": url.path,
-                "bookmarkKey": bookmarkKey
+                "bookmarkKey": bookmarkKey,
             ]
 
             pendingResult?(directoryInfo)
         } catch {
-            pendingResult?(FlutterError(code: "BOOKMARK_ERROR", message: "Failed to create bookmark: \(error.localizedDescription)", details: nil))
+            pendingResult?(
+                FlutterError(
+                    code: "BOOKMARK_ERROR",
+                    message: "Failed to create bookmark: \(error.localizedDescription)",
+                    details: nil))
         }
 
         pendingResult = nil
     }
 
     public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        pendingResult?(FlutterError(code: "CANCELLED", message: "User cancelled directory selection", details: nil))
+        pendingResult?(
+            FlutterError(
+                code: "CANCELLED", message: "User cancelled directory selection", details: nil))
         pendingResult = nil
     }
 
-    // MARK: - Scan Directory
-
     private func scanDirectory(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
-              let directoryUri = args["uri"] as? String,
-              let url = parseURL(from: directoryUri) else {
-            result(FlutterError(code: "INVALID_ARGUMENTS", message: "Valid directoryUri is required", details: nil))
+            let directoryUri = args["uri"] as? String,
+            let url = parseURL(from: directoryUri)
+        else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Valid directoryUri is required",
+                    details: nil))
             return
         }
 
@@ -124,48 +142,67 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
 
             guard let parentURL = self.resolveBookmark(for: url) else {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "NO_BOOKMARK", message: "No bookmark found. Please pick the directory first.", details: nil))
+                    result(
+                        FlutterError(
+                            code: "NO_BOOKMARK",
+                            message: "No bookmark found. Please pick the directory first.",
+                            details: nil))
                 }
                 return
             }
 
             guard parentURL.startAccessingSecurityScopedResource() else {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "ACCESS_DENIED", message: "Cannot access directory", details: nil))
+                    result(
+                        FlutterError(
+                            code: "ACCESS_DENIED", message: "Cannot access directory", details: nil)
+                    )
                 }
                 return
             }
             defer { parentURL.stopAccessingSecurityScopedResource() }
 
             do {
-                let files = try self.scanFiles(at: url, extensions: extensions, recursive: recursive)
+                let files = try self.scanFiles(
+                    at: url, extensions: extensions, recursive: recursive)
                 DispatchQueue.main.async {
                     result(files)
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "SCAN_ERROR", message: "Error scanning directory: \(error.localizedDescription)", details: nil))
+                    result(
+                        FlutterError(
+                            code: "SCAN_ERROR",
+                            message: "Error scanning directory: \(error.localizedDescription)",
+                            details: nil))
                 }
             }
         }
     }
 
-    private func scanFiles(at url: URL, extensions: [String], recursive: Bool) throws -> [[String: Any]] {
+    private func scanFiles(at url: URL, extensions: [String], recursive: Bool) throws -> [[String:
+        Any]]
+    {
         let fileManager = FileManager.default
         var result: [[String: Any]] = []
 
         let contents = try fileManager.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [
+                .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+            ],
             options: [.skipsHiddenFiles]
         )
 
         for fileURL in contents {
-            let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+            let resourceValues = try fileURL.resourceValues(forKeys: [
+                .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+            ])
 
             if resourceValues.isDirectory == true {
                 if recursive {
-                    let subFiles = try scanFiles(at: fileURL, extensions: extensions, recursive: recursive)
+                    let subFiles = try scanFiles(
+                        at: fileURL, extensions: extensions, recursive: recursive)
                     result.append(contentsOf: subFiles)
                 }
             } else if shouldIncludeFile(fileURL, extensions: extensions) {
@@ -175,7 +212,8 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                     "path": fileURL.path,
                     "size": resourceValues.fileSize ?? 0,
                     "mimeType": getMimeType(for: fileURL) as Any,
-                    "lastModified": Int64((resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000)
+                    "lastModified": Int64(
+                        (resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000),
                 ]
                 result.append(fileInfo)
             }
@@ -190,29 +228,56 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
         return extensions.contains { $0.lowercased() == fileExtension }
     }
 
-    // MARK: - Read File
-
     private func readFileBytes(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
-              let fileUri = args["uri"] as? String,
-              let fileURL = parseURL(from: fileUri) else {
-            result(FlutterError(code: "INVALID_ARGUMENTS", message: "Valid fileUri is required", details: nil))
+            let fileUri = args["uri"] as? String,
+            let fileURL = parseURL(from: fileUri)
+        else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Valid fileUri is required", details: nil))
             return
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
+            if self.isInAppContainer(url: fileURL) {
+                do {
+                    let data = try Data(contentsOf: fileURL)
+                    let flutterData = FlutterStandardTypedData(bytes: data)
+                    DispatchQueue.main.async {
+                        result(flutterData)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        result(
+                            FlutterError(
+                                code: "READ_ERROR",
+                                message: "Error reading file: \(error.localizedDescription)",
+                                details: nil))
+                    }
+                }
+                return
+            }
+
             guard let parentURL = self.resolveBookmark(for: fileURL) else {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "NO_PARENT", message: "No parent directory bookmark found. Please pick the directory first.", details: nil))
+                    result(
+                        FlutterError(
+                            code: "NO_PARENT",
+                            message:
+                                "No parent directory bookmark found. Please pick the directory first.",
+                            details: nil))
                 }
                 return
             }
 
             guard parentURL.startAccessingSecurityScopedResource() else {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "ACCESS_DENIED", message: "Cannot access file", details: nil))
+                    result(
+                        FlutterError(
+                            code: "ACCESS_DENIED", message: "Cannot access file", details: nil))
                 }
                 return
             }
@@ -226,23 +291,37 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "READ_ERROR", message: "Error reading file: \(error.localizedDescription)", details: nil))
+                    result(
+                        FlutterError(
+                            code: "READ_ERROR",
+                            message: "Error reading file: \(error.localizedDescription)",
+                            details: nil))
                 }
             }
         }
     }
 
-    // MARK: - Check Access
-
     private func checkAccess(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
-              let uri = args["uri"] as? String,
-              let url = parseURL(from: uri) else {
+            let uri = args["uri"] as? String,
+            let url = parseURL(from: uri)
+        else {
             result(false)
             return
         }
 
-        // Try to resolve bookmark for security-scoped resources
+        if isInAppContainer(url: url) {
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+
+            if args["checkDirectory"] as? Bool != nil {
+                result(exists && isDirectory.boolValue)
+            } else {
+                result(exists)
+            }
+            return
+        }
+
         if let parentURL = resolveBookmark(for: url) {
             guard parentURL.startAccessingSecurityScopedResource() else {
                 result(false)
@@ -251,46 +330,82 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
             defer { parentURL.stopAccessingSecurityScopedResource() }
         }
 
-        // Check if file/directory exists
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
 
-        // If checking for directory specifically (original behavior)
-        if let _ = args["checkDirectory"] as? Bool {
+        if args["checkDirectory"] as? Bool != nil {
             result(exists && isDirectory.boolValue)
         } else {
-            // Check for any file or directory
             result(exists)
         }
     }
 
-    // MARK: - Bookmark Management
+    private func isInAppContainer(url: URL) -> Bool {
+        let path = url.path
+        guard
+            let appGroupId = Bundle.main.object(forInfoDictionaryKey: "AppGroupId") as? String
+                ?? getDefaultAppGroupId()
+        else {
+            return false
+        }
+
+        if let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupId)
+        {
+            return path.hasPrefix(containerURL.path)
+        }
+
+        if let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+        {
+            if path.hasPrefix(documentsURL.path) {
+                return true
+            }
+        }
+
+        if let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+            .first
+        {
+            if path.hasPrefix(cachesURL.path) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func getDefaultAppGroupId() -> String? {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return nil }
+        return "group.\(bundleId)"
+    }
 
     private func saveBookmark(_ bookmarkData: Data, for key: String) {
-        var bookmarks = UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
+        var bookmarks =
+            UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
         bookmarks[key] = bookmarkData
         UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
     }
 
     private func resolveBookmark(for fileURL: URL) -> URL? {
-        let bookmarks = UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
+        let bookmarks =
+            UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
         let filePath = fileURL.path
 
-        // Find the longest matching bookmark path (most specific parent)
         var bestMatch: (url: URL, pathLength: Int)?
 
         for (savedPath, bookmarkData) in bookmarks {
             guard filePath.hasPrefix(savedPath) || filePath == savedPath else { continue }
 
             var isStale = false
-            guard let directoryURL = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withoutUI,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else { continue }
+            guard
+                let directoryURL = try? URL(
+                    resolvingBookmarkData: bookmarkData,
+                    options: .withoutUI,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                )
+            else { continue }
 
-            // Refresh stale bookmark
             if isStale {
                 refreshBookmark(for: savedPath, url: directoryURL)
             }
@@ -316,8 +431,6 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
             saveBookmark(newBookmarkData, for: key)
         }
     }
-
-    // MARK: - Utilities
 
     private func parseURL(from uri: String) -> URL? {
         if uri.hasPrefix("file://") {
