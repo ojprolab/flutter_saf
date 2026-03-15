@@ -1,8 +1,10 @@
 # ChangeLogs
 
-## 0.0.6
+## 0.1.0
 
-*  
+* Run expensive operation on the background
+* Introduced new methods (`readBytesAt`, `copyFileToPath`, `deleteFile`, `renameFile`, `exists` and `releasePermission`)
+* Improve overall code and docs
 
 ## 0.0.5
 

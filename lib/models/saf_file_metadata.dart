@@ -1,4 +1,4 @@
-class SAFFile {
+class SAFFileMetadata {
   final String uri;
   final String? name;
   final String? path;
@@ -6,18 +6,20 @@ class SAFFile {
   final String? mimeType;
   final int lastModified;
   final bool isWritable;
+  final bool isDirectory;
 
-  const SAFFile({
+  const SAFFileMetadata({
     required this.uri,
     required this.size,
     required this.lastModified,
-    this.isWritable = false,
+    required this.isWritable,
+    required this.isDirectory,
     this.name,
     this.path,
     this.mimeType,
   });
 
-  factory SAFFile.fromMap(Map<String, dynamic> map) => SAFFile(
+  factory SAFFileMetadata.fromMap(Map<String, dynamic> map) => SAFFileMetadata(
         uri: map['uri'] as String? ?? '',
         name: map['name'] as String?,
         path: map['path'] as String?,
@@ -25,6 +27,7 @@ class SAFFile {
         mimeType: map['mimeType'] as String?,
         lastModified: (map['lastModified'] as num?)?.toInt() ?? 0,
         isWritable: map['isWritable'] as bool? ?? false,
+        isDirectory: map['isDirectory'] as bool? ?? false,
       );
 
   Map<String, dynamic> toMap() => {
@@ -35,16 +38,11 @@ class SAFFile {
         'mimeType': mimeType,
         'lastModified': lastModified,
         'isWritable': isWritable,
+        'isDirectory': isDirectory,
       };
 
   DateTime get lastModifiedDate =>
       DateTime.fromMillisecondsSinceEpoch(lastModified, isUtc: true);
-
-  String get extension {
-    final n = name;
-    if (n == null || !n.contains('.')) return '';
-    return n.split('.').last.toLowerCase();
-  }
 
   String get formattedSize {
     if (size < 1024) return '$size B';
@@ -55,5 +53,6 @@ class SAFFile {
   }
 
   @override
-  String toString() => 'SAFFile(name: $name, size: $formattedSize)';
+  String toString() =>
+      'SAFFileMetadata(name: $name, size: $formattedSize, isDirectory: $isDirectory)';
 }

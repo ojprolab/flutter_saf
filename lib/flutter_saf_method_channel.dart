@@ -1,35 +1,22 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_saf/exceptions/saf_exception.dart';
 import 'package:flutter_saf/models/saf_directory.dart';
 import 'package:flutter_saf/models/saf_file.dart';
+import 'package:flutter_saf/models/saf_file_metadata.dart';
 
+import 'flutter_saf.dart' show SortBy;
 import 'flutter_saf_platform_interface.dart';
 
-/// An implementation of [FlutterSafPlatform] that uses method channels.
 class MethodChannelFlutterSaf extends FlutterSafPlatform {
-  /// The method channel used to interact with the native platform.
-  @visibleForTesting
   final methodChannel = const MethodChannel('flutter_saf');
 
   @override
-  Future<SAFDirectory?> pickDirectory() async {
-    try {
-      final pickedDirectory = await methodChannel
-          .invokeMethod<Map<Object?, Object?>?>('pickDirectory');
-
-      if (pickedDirectory == null) return null;
-
-      final directory = Map<String, dynamic>.from(pickedDirectory);
-
-      return SAFDirectory.fromMap(directory);
-    } on PlatformException catch (exception) {
-      throw SAFException(
-        code: exception.code,
-        message: exception.message ?? 'Unknown error',
-        details: exception.details,
-      );
-    }
+  Future<SAFDirectory?> pickDirectory({String? initialUri}) async {
+    final result = await methodChannel.invokeMapMethod<String, dynamic>(
+      'pickDirectory',
+      {if (initialUri != null) 'initialUri': initialUri},
+    );
+    if (result == null) return null;
+    return SAFDirectory.fromMap(result);
   }
 
   @override
@@ -37,73 +24,111 @@ class MethodChannelFlutterSaf extends FlutterSafPlatform {
     String uri, {
     List<String>? extensions,
     bool recursive = true,
+    String? taskId,
+    bool includeHidden = false,
+    int? minSize,
+    int? maxSize,
+    SortBy? sortBy,
+    bool sortDescending = false,
+    int? limit,
   }) async {
-    try {
-      final detectedFiles = await methodChannel.invokeMethod<List<Object?>?>(
-        'scanDirectory',
-        <String, dynamic>{
-          'uri': uri,
-          'extensions': extensions,
-          'recursive': recursive,
-        },
-      );
-
-      if (detectedFiles == null) return null;
-
-      final files = detectedFiles
-          .map((file) => SAFFile.fromMap(
-              Map<String, dynamic>.from(file as Map<Object?, Object?>)))
-          .toList();
-
-      return files;
-    } on PlatformException catch (exception) {
-      throw SAFException(
-        code: exception.code,
-        message: exception.message ?? 'Unknown error',
-        details: exception.details,
-      );
-    }
+    final result = await methodChannel.invokeListMethod<Map>('scanDirectory', {
+      'uri': uri,
+      'recursive': recursive,
+      'includeHidden': includeHidden,
+      'sortDescending': sortDescending,
+      if (extensions != null && extensions.isNotEmpty) 'extensions': extensions,
+      if (taskId != null) 'taskId': taskId,
+      if (minSize != null) 'minSize': minSize,
+      if (maxSize != null) 'maxSize': maxSize,
+      if (sortBy != null) 'sortBy': sortBy.value,
+      if (limit != null) 'limit': limit,
+    });
+    if (result == null) return null;
+    return result
+        .map((e) => SAFFile.fromMap(Map<String, dynamic>.from(e)))
+        .toList();
   }
 
   @override
-  Future<Uint8List?> readFileBytes(String uri) async {
-    try {
-      final fileBytes = await methodChannel.invokeMethod<Uint8List?>(
-        'readFileBytes',
-        <String, dynamic>{
-          'uri': uri,
-        },
-      );
-
-      if (fileBytes == null) return null;
-
-      return fileBytes;
-    } on PlatformException catch (exception) {
-      throw SAFException(
-        code: exception.code,
-        message: exception.message ?? 'Unknown error',
-        details: exception.details,
-      );
-    }
+  Future<Uint8List?> readFileBytes(
+    String uri, {
+    String? taskId,
+    int? maxBytes,
+  }) {
+    return methodChannel.invokeMethod<Uint8List>('readFileBytes', {
+      'uri': uri,
+      if (taskId != null) 'taskId': taskId,
+      if (maxBytes != null) 'maxBytes': maxBytes,
+    });
   }
 
   @override
-  Future<bool?> checkAccess(String uri) async {
-    try {
-      final hasAccess = await methodChannel.invokeMethod<bool?>(
-        'checkAccess',
-        <String, dynamic>{
-          'uri': uri,
-        },
-      );
+  Future<Uint8List?> readBytesAt(String uri, int position, int size) {
+    return methodChannel.invokeMethod<Uint8List>('readBytesAt', {
+      'uri': uri,
+      'position': position,
+      'size': size,
+    });
+  }
 
-      return hasAccess;
-    } on PlatformException catch (exception) {
-      throw SAFException(
-        code: exception.code,
-        message: exception.message ?? 'Unknown error',
-        details: exception.details,
-      );
-    }
+  @override
+  Future<String?> copyFileToPath(
+    String uri,
+    String destPath, {
+    String? taskId,
+    bool overwrite = true,
+    int bufferSize = 32768,
+  }) {
+    return methodChannel.invokeMethod<String>('copyFileToPath', {
+      'uri': uri,
+      'destPath': destPath,
+      'overwrite': overwrite,
+      'bufferSize': bufferSize,
+      if (taskId != null) 'taskId': taskId,
+    });
+  }
+
+  @override
+  Future<bool?> checkAccess(String uri) {
+    return methodChannel.invokeMethod<bool>('checkAccess', {'uri': uri});
+  }
+
+  @override
+  Future<bool?> deleteFile(String uri) {
+    return methodChannel.invokeMethod<bool>('deleteFile', {'uri': uri});
+  }
+
+  @override
+  Future<String?> renameFile(
+    String uri, {
+    String? newName,
+    String? destPath,
+  }) {
+    return methodChannel.invokeMethod<String>('renameFile', {
+      'uri': uri,
+      if (newName != null) 'newName': newName,
+      if (destPath != null) 'destPath': destPath,
+    });
+  }
+
+  @override
+  Future<bool?> exists(String uri) {
+    return methodChannel.invokeMethod<bool>('exists', {'uri': uri});
+  }
+
+  @override
+  Future<SAFFileMetadata?> getFileMetadata(String uri) async {
+    final result = await methodChannel.invokeMapMethod<String, dynamic>(
+      'getFileMetadata',
+      {'uri': uri},
+    );
+    if (result == null) return null;
+    return SAFFileMetadata.fromMap(result);
+  }
+
+  @override
+  Future<bool?> releasePermission(String uri) {
+    return methodChannel.invokeMethod<bool>('releasePermission', {'uri': uri});
   }
 }
