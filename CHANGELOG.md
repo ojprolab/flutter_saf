@@ -2,6 +2,10 @@
 
 ## 0.1.0
 
+* Fix a bookmark issue preventing scan to detect files
+
+## 0.1.0
+
 * Run expensive operation on the background
 * Introduced new methods (`readBytesAt`, `copyFileToPath`, `deleteFile`, `renameFile`, `exists` and `releasePermission`)
 * Improve overall code and docs

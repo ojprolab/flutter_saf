@@ -138,6 +138,15 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                     return self.postToMain { result(self.err("ACCESS_DENIED", "Cannot access: \(directoryUri)")) }
                 }
                 scopedURL = resolved
+            } else {
+                if let resolved = self.resolveBookmark(for: rootURL) {
+                    guard resolved.startAccessingSecurityScopedResource() else {
+                        return self.postToMain { result(self.err("ACCESS_DENIED", "Cannot access")) }
+                    }
+                    scopedURL = resolved
+                } else {
+                    print("DEBUG: No bookmark found for app container path, proceeding without scoped access")
+                }
             }
             defer { scopedURL?.stopAccessingSecurityScopedResource() }
 
