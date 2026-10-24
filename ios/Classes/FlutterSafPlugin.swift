@@ -1,3 +1,4 @@
+import CommonCrypto
 import Flutter
 import UIKit
 import UniformTypeIdentifiers
@@ -32,6 +33,7 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
         case "renameFile":        renameFile(call: call, result: result)
         case "exists":            exists(call: call, result: result)
         case "getFileMetadata":   getFileMetadata(call: call, result: result)
+        case "hashFile":          hashFile(call: call, result: result)
         case "releasePermission": releasePermission(call: call, result: result)
         default:                  result(FlutterMethodNotImplemented)
         }
@@ -426,10 +428,11 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
             return result(FileManager.default.fileExists(atPath: url.path))
         }
 
-        if let scopedURL = resolveBookmark(for: url) {
-            guard scopedURL.startAccessingSecurityScopedResource() else { return result(false) }
-            defer { scopedURL.stopAccessingSecurityScopedResource() }
+        guard let scopedURL = resolveBookmark(for: url) else {
+            return result(FileManager.default.fileExists(atPath: url.path))
         }
+        guard scopedURL.startAccessingSecurityScopedResource() else { return result(false) }
+        defer { scopedURL.stopAccessingSecurityScopedResource() }
         result(FileManager.default.fileExists(atPath: url.path))
     }
 
@@ -540,6 +543,45 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                 } catch {
                     self.postToMain { result(self.err("METADATA_ERROR", error.localizedDescription)) }
                 }
+            }
+        }
+    }
+
+    private func hashFile(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args    = call.arguments as? [String: Any],
+              let fileUri = args["uri"] as? String,
+              let fileURL = parseURL(from: fileUri) else {
+            return result(err("INVALID_ARGUMENTS", "Valid uri is required"))
+        }
+
+        runInBackground { [weak self] in
+            guard let self = self else { return }
+            self.withScopedAccess(to: fileURL, result: result) { resolvedURL in
+                guard let input = InputStream(url: resolvedURL ?? fileURL) else {
+                    return self.postToMain { result(self.err("READ_ERROR", "Cannot open InputStream for: \(fileURL.path)")) }
+                }
+                input.open()
+                defer { input.close() }
+
+                var context = CC_SHA256_CTX()
+                CC_SHA256_Init(&context)
+                let bufSize = 64 * 1024
+                var buf     = [UInt8](repeating: 0, count: bufSize)
+
+                while true {
+                    let n = input.read(&buf, maxLength: bufSize)
+                    if n < 0 {
+                        let message = input.streamError?.localizedDescription ?? "Read failed"
+                        return self.postToMain { result(self.err("READ_ERROR", message)) }
+                    }
+                    if n == 0 { break }
+                    CC_SHA256_Update(&context, buf, CC_LONG(n))
+                }
+
+                var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+                CC_SHA256_Final(&digest, &context)
+                let hex = digest.map { String(format: "%02x", $0) }.joined()
+                self.postToMain { result(hex) }
             }
         }
     }

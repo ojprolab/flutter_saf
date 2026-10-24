@@ -6,6 +6,7 @@ import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.webkit.MimeTypeMap
 import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -15,7 +16,10 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.PluginRegistry
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.security.MessageDigest
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -77,6 +81,7 @@ class FlutterSafPlugin :
             "renameFile"        -> renameFile(call, result)
             "exists"            -> exists(call, result)
             "getFileMetadata"   -> getFileMetadata(call, result)
+            "hashFile"          -> hashFile(call, result)
             "releasePermission" -> releasePermission(call, result)
             else                -> result.notImplemented()
         }
@@ -159,7 +164,7 @@ class FlutterSafPlugin :
     //            minSize, maxSize, sortBy, sortDescending, limit
     // Progress:  { taskId, progress 0–1, status "scanning"|"done" }
     // Result:    List<{ uri, name, path, size, mimeType, lastModified, isWritable }>
-    // Errors:    INVALID_ARGUMENTS | PERMISSION_DENIED | INVALID_URI | SCAN_ERROR
+    // Errors:    INVALID_ARGUMENTS | PERMISSION_DENIED | INVALID_URI | NO_CONTEXT | SCAN_ERROR
 
     private fun scanDirectory(call: MethodCall, result: MethodChannel.Result) {
         val directoryUri   = call.argument<String>("uri") ?: return result.error("INVALID_ARGUMENTS", "uri is required", null)
@@ -187,9 +192,11 @@ class FlutterSafPlugin :
                     result.error("INVALID_URI", "Cannot resolve document ID for: $directoryUri", null)
                 }
 
+            val ctx = appContext()
+                ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "Context unavailable", null) }
+
             try {
                 sendProgress(taskId, 0.0, "scanning")
-                val ctx   = context ?: activity!!
                 val files = mutableListOf<Map<String, Any?>>()
 
                 collectFilesCursor(
@@ -304,12 +311,11 @@ class FlutterSafPlugin :
         val maxBytes = (call.argument<Any>("maxBytes") as? Number)?.toLong()
 
         runInBackground {
-            val cr = activity?.contentResolver
+            val source = sourceFor(fileUri)
                 ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "ContentResolver unavailable", null) }
 
             try {
-                val uri       = Uri.parse(fileUri)
-                val totalSize = cr.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+                val totalSize = source.size()
 
                 if (maxBytes != null && totalSize > maxBytes) {
                     return@runInBackground postToMain {
@@ -319,7 +325,7 @@ class FlutterSafPlugin :
 
                 sendProgress(taskId, 0.0, "reading")
 
-                val bytes = cr.openInputStream(uri)?.use { stream ->
+                val bytes = source.open()?.use { stream ->
                     val out    = java.io.ByteArrayOutputStream(if (totalSize > 0) totalSize.toInt() else 32768)
                     val buffer = ByteArray(32 * 1024)
                     var total  = 0L
@@ -357,17 +363,11 @@ class FlutterSafPlugin :
         val size     = (call.argument<Any>("size") as? Number)?.toInt()      ?: return result.error("INVALID_ARGUMENTS", "size is required", null)
 
         runInBackground {
-            try {
-                val uri = Uri.parse(fileUri)
-                val stream = if (uri.scheme == "content") {
-                    val cr = activity?.contentResolver
-                        ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "ContentResolver unavailable", null) }
-                    cr.openInputStream(uri)
-                } else {
-                    java.io.FileInputStream(uri.path ?: fileUri)
-                }
+            val source = sourceFor(fileUri)
+                ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "ContentResolver unavailable", null) }
 
-                val bytes = stream?.use { s ->
+            try {
+                val bytes = source.open()?.use { s ->
                     var remaining = position
                     while (remaining > 0) {
                         val skipped = s.skip(remaining)
@@ -410,7 +410,7 @@ class FlutterSafPlugin :
         val bufferSize = (call.argument<Int>("bufferSize") ?: 32768).coerceAtLeast(1024)
 
         runInBackground {
-            val cr = activity?.contentResolver
+            val source = sourceFor(fileUri)
                 ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "ContentResolver unavailable", null) }
 
             try {
@@ -421,14 +421,17 @@ class FlutterSafPlugin :
                     }
                 }
 
+                if (source.file?.canonicalFile == destFile.canonicalFile) {
+                    return@runInBackground postToMain { result.success(destPath) }
+                }
+
                 destFile.parentFile?.mkdirs()
 
-                val uri       = Uri.parse(fileUri)
-                val totalSize = cr.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+                val totalSize = source.size()
 
                 sendProgress(taskId, 0.0, "copying")
 
-                cr.openInputStream(uri)?.use { input ->
+                source.open()?.use { input ->
                     FileOutputStream(destFile).use { output ->
                         val buffer = ByteArray(bufferSize)
                         var copied = 0L
@@ -487,8 +490,10 @@ class FlutterSafPlugin :
     private fun deleteFile(call: MethodCall, result: MethodChannel.Result) {
         val fileUri = call.argument<String>("uri") ?: return result.error("INVALID_ARGUMENTS", "uri is required", null)
         runInBackground {
+            val ctx = appContext()
+                ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "Context unavailable", null) }
+
             try {
-                val ctx = context ?: activity!!
                 val doc = DocumentFile.fromSingleUri(ctx, Uri.parse(fileUri))
                     ?: return@runInBackground postToMain { result.error("INVALID_URI", "Cannot resolve: $fileUri", null) }
                 if (!doc.canWrite()) {
@@ -504,16 +509,23 @@ class FlutterSafPlugin :
     }
 
     // ── renameFile ────────────────────────────────────────────────────────────
-    // Arguments: uri*, newName*
-    // Result:    new URI string (may differ from original after rename)
-    // Errors:    INVALID_ARGUMENTS | INVALID_URI | UNSUPPORTED | PERMISSION_ERROR | RENAME_ERROR
+    // Arguments: uri*, newName | destPath (file paths only; content URIs need newName)
+    // Result:    new URI string for content URIs (may differ from original), new path for files
+    // Errors:    INVALID_ARGUMENTS | NO_CONTEXT | INVALID_URI | UNSUPPORTED | PERMISSION_ERROR | RENAME_ERROR
 
     private fun renameFile(call: MethodCall, result: MethodChannel.Result) {
-        val fileUri = call.argument<String>("uri")     ?: return result.error("INVALID_ARGUMENTS", "uri is required", null)
-        val newName = call.argument<String>("newName") ?: return result.error("INVALID_ARGUMENTS", "newName is required", null)
+        val fileUri  = call.argument<String>("uri") ?: return result.error("INVALID_ARGUMENTS", "uri is required", null)
+        val newName  = call.argument<String>("newName")
+        val destPath = call.argument<String>("destPath")
+
+        if (!isContentUri(fileUri)) return renameLocalFile(localFile(fileUri), newName, destPath, result)
+
+        if (newName == null) return result.error("INVALID_ARGUMENTS", "newName is required for content URIs", null)
         runInBackground {
+            val ctx = appContext()
+                ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "Context unavailable", null) }
+
             try {
-                val ctx = context ?: activity!!
                 val doc = DocumentFile.fromSingleUri(ctx, Uri.parse(fileUri))
                     ?: return@runInBackground postToMain { result.error("INVALID_URI", "Cannot resolve: $fileUri", null) }
                 if (!doc.canWrite()) {
@@ -523,6 +535,26 @@ class FlutterSafPlugin :
                     postToMain { result.success(doc.uri.toString()) }
                 } else {
                     postToMain { result.error("RENAME_ERROR", "Rename failed for: $fileUri", null) }
+                }
+            } catch (e: SecurityException) {
+                postToMain { result.error("PERMISSION_ERROR", e.message, null) }
+            } catch (e: Exception) {
+                postToMain { result.error("RENAME_ERROR", e.message, null) }
+            }
+        }
+    }
+
+    private fun renameLocalFile(source: File, newName: String?, destPath: String?, result: MethodChannel.Result) {
+        val dest = destPath?.let { File(it) }
+            ?: newName?.let { File(source.parentFile, it) }
+            ?: return result.error("INVALID_ARGUMENTS", "newName or destPath is required", null)
+
+        runInBackground {
+            try {
+                if (source.renameTo(dest)) {
+                    postToMain { result.success(dest.path) }
+                } else {
+                    postToMain { result.error("RENAME_ERROR", "Rename failed for: ${source.path}", null) }
                 }
             } catch (e: SecurityException) {
                 postToMain { result.error("PERMISSION_ERROR", e.message, null) }
@@ -565,29 +597,81 @@ class FlutterSafPlugin :
     // ── getFileMetadata ───────────────────────────────────────────────────────
     // Arguments: uri*
     // Result:    { uri, name, path, size, mimeType, lastModified, isWritable, isDirectory }
-    // Errors:    INVALID_ARGUMENTS | INVALID_URI | METADATA_ERROR
+    // Errors:    INVALID_ARGUMENTS | NO_CONTEXT | INVALID_URI | METADATA_ERROR
 
     private fun getFileMetadata(call: MethodCall, result: MethodChannel.Result) {
         val fileUri = call.argument<String>("uri") ?: return result.error("INVALID_ARGUMENTS", "uri is required", null)
         runInBackground {
             try {
-                val ctx = context ?: activity!!
-                val doc = DocumentFile.fromSingleUri(ctx, Uri.parse(fileUri))
-                    ?: return@runInBackground postToMain { result.error("INVALID_URI", "Cannot resolve: $fileUri", null) }
-                postToMain {
-                    result.success(mapOf(
-                        "uri"          to doc.uri.toString(),
-                        "name"         to doc.name,
-                        "path"         to doc.uri.path,
-                        "size"         to doc.length(),
-                        "mimeType"     to doc.type,
-                        "lastModified" to doc.lastModified(),
-                        "isWritable"   to doc.canWrite(),
-                        "isDirectory"  to doc.isDirectory,
-                    ))
+                if (!isContentUri(fileUri)) {
+                    val file = localFile(fileUri)
+                    if (!file.exists()) {
+                        return@runInBackground postToMain { result.error("METADATA_ERROR", "File not found: $fileUri", null) }
+                    }
+                    val metadata = localMetadata(file)
+                    return@runInBackground postToMain { result.success(metadata) }
                 }
+
+                val ctx = appContext()
+                    ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "Context unavailable", null) }
+                val uri = Uri.parse(fileUri)
+                val doc = if (DocumentsContract.isTreeUri(uri) && !DocumentsContract.isDocumentUri(ctx, uri)) {
+                    DocumentFile.fromTreeUri(ctx, uri)
+                } else {
+                    DocumentFile.fromSingleUri(ctx, uri)
+                } ?: return@runInBackground postToMain { result.error("INVALID_URI", "Cannot resolve: $fileUri", null) }
+
+                val metadata = mapOf(
+                    "uri"          to doc.uri.toString(),
+                    "name"         to doc.name,
+                    "path"         to doc.uri.path,
+                    "size"         to doc.length(),
+                    "mimeType"     to doc.type,
+                    "lastModified" to doc.lastModified(),
+                    "isWritable"   to doc.canWrite(),
+                    "isDirectory"  to doc.isDirectory,
+                )
+                postToMain { result.success(metadata) }
             } catch (e: Exception) {
                 postToMain { result.error("METADATA_ERROR", e.message, null) }
+            }
+        }
+    }
+
+    private fun localMetadata(file: File): Map<String, Any?> = mapOf(
+        "uri"          to Uri.fromFile(file).toString(),
+        "name"         to file.name,
+        "path"         to file.path,
+        "size"         to file.length(),
+        "mimeType"     to if (file.isDirectory) null else MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()),
+        "lastModified" to file.lastModified(),
+        "isWritable"   to file.canWrite(),
+        "isDirectory"  to file.isDirectory,
+    )
+
+    private fun hashFile(call: MethodCall, result: MethodChannel.Result) {
+        val fileUri = call.argument<String>("uri") ?: return result.error("INVALID_ARGUMENTS", "uri is required", null)
+
+        runInBackground {
+            val source = sourceFor(fileUri)
+                ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "ContentResolver unavailable", null) }
+
+            try {
+                val digest = MessageDigest.getInstance("SHA-256")
+                source.open()?.use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    var n: Int
+                    while (input.read(buffer).also { n = it } != -1) digest.update(buffer, 0, n)
+                } ?: return@runInBackground postToMain {
+                    result.error("READ_ERROR", "Cannot open InputStream for: $fileUri", null)
+                }
+
+                val hex = digest.digest().joinToString("") { "%02x".format(it) }
+                postToMain { result.success(hex) }
+            } catch (e: SecurityException) {
+                postToMain { result.error("PERMISSION_ERROR", e.message, null) }
+            } catch (e: Exception) {
+                postToMain { result.error("READ_ERROR", e.message, null) }
             }
         }
     }
@@ -602,7 +686,7 @@ class FlutterSafPlugin :
         try {
             val uri   = Uri.parse(uriString)
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            activity?.contentResolver?.releasePersistableUriPermission(uri, flags)
+            appContext()?.contentResolver?.releasePersistableUriPermission(uri, flags)
             removeBookmark(uri)
             result.success(true)
         } catch (e: Exception) {
@@ -625,11 +709,11 @@ class FlutterSafPlugin :
     }
 
     private fun hasPersistedPermission(uri: Uri): Boolean =
-        activity?.contentResolver?.persistedUriPermissions?.any { it.uri == uri } == true
+        appContext()?.contentResolver?.persistedUriPermissions?.any { it.uri == uri } == true
 
     private fun pruneStaleBookmarks() {
         val prefs   = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) ?: return
-        val cr      = activity?.contentResolver ?: return
+        val cr      = appContext()?.contentResolver ?: return
         val granted = cr.persistedUriPermissions.map { it.uri.toString() }.toSet()
         val stored  = prefs.getStringSet(KEY_PERSISTED_URIS, emptySet()) ?: emptySet()
         val valid   = stored.intersect(granted)
@@ -637,6 +721,29 @@ class FlutterSafPlugin :
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
+
+    private class Source(val file: File?, val open: () -> InputStream?, val size: () -> Long)
+
+    private fun appContext(): Context? = context ?: activity
+
+    private fun isContentUri(raw: String) = raw.startsWith("content://")
+
+    private fun localFile(raw: String): File =
+        if (raw.startsWith("file://")) File(Uri.parse(raw)?.path ?: raw.removePrefix("file://")) else File(raw)
+
+    private fun sourceFor(raw: String): Source? {
+        if (!isContentUri(raw)) {
+            val file = localFile(raw)
+            return Source(file, { FileInputStream(file) }, { file.length() })
+        }
+        val cr  = appContext()?.contentResolver ?: return null
+        val uri = Uri.parse(raw)
+        return Source(
+            null,
+            { cr.openInputStream(uri) },
+            { runCatching { cr.openFileDescriptor(uri, "r")?.use { it.statSize } }.getOrNull() ?: -1L },
+        )
+    }
 
     private fun runInBackground(block: () -> Unit) = executor.execute(block)
 

@@ -36,6 +36,12 @@ class FakeFlutterSafPlatform extends FlutterSafPlatform
   }
 
   @override
+  Future<String?> hashFile(String uri) async {
+    calls.add('hashFile $uri');
+    return 'digest';
+  }
+
+  @override
   Future<List<SAFFile>?> scanDirectory(
     String uri, {
     List<String>? extensions,
@@ -105,6 +111,11 @@ void main() {
     expect(fake.calls, [
       'scanDirectory content://tree/books [epub] false SortBy.size 3',
     ]);
+  });
+
+  test('hashFile forwards the uri to the platform', () async {
+    expect(await saf.hashFile('content://doc/1'), 'digest');
+    expect(fake.calls, ['hashFile content://doc/1']);
   });
 
   test('renameFile requires a new name or destination', () {

@@ -88,6 +88,10 @@ abstract class FlutterSafPlatform extends PlatformInterface {
     throw UnimplementedError('getFileMetadata() is not implemented');
   }
 
+  Future<String?> hashFile(String uri) {
+    throw UnimplementedError('hashFile() is not implemented');
+  }
+
   Future<bool?> releasePermission(String uri) {
     throw UnimplementedError('releasePermission() is not implemented');
   }

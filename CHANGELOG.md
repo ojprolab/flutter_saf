@@ -1,5 +1,16 @@
 # ChangeLogs
 
+## Unreleased
+
+* Add `hashFile` (SHA-256 hex, streamed natively on Android and iOS)
+* Android: `readFileBytes`, `readBytesAt`, `copyFileToPath` and `getFileMetadata` accept plain paths, `file://` and `content://` URIs
+* Android: file operations use the application context, so they work without an Activity (background, activity recreation)
+* Android: `getFileMetadata` returns `NO_CONTEXT` instead of crashing, and resolves tree URIs
+* Android: `renameFile` accepts `destPath` for file paths; content URIs still require `newName`
+* Android: `copyFileToPath` onto its own source is a no-op instead of truncating the file
+* iOS: `checkAccess` keeps security-scoped access open while it checks the file
+* Android: Robolectric tests for real `ContentResolver` reads
+
 ## 0.1.0
 
 * Fix a bookmark issue preventing scan to detect files

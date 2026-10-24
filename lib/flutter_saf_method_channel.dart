@@ -128,6 +128,11 @@ class MethodChannelFlutterSaf extends FlutterSafPlatform {
   }
 
   @override
+  Future<String?> hashFile(String uri) {
+    return methodChannel.invokeMethod<String>('hashFile', {'uri': uri});
+  }
+
+  @override
   Future<bool?> releasePermission(String uri) {
     return methodChannel.invokeMethod<bool>('releasePermission', {'uri': uri});
   }

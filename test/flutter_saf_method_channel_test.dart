@@ -233,6 +233,27 @@ void main() {
     expect(meta?.lastModified, 0);
   });
 
+  test('hashFile sends only the uri and returns the digest', () async {
+    reply = 'ba7816bf';
+
+    final digest = await platform.hashFile('content://doc/1');
+
+    expect(single().method, 'hashFile');
+    expect(single().arguments, {'uri': 'content://doc/1'});
+    expect(digest, 'ba7816bf');
+  });
+
+  test('renameFile sends destPath when given', () async {
+    reply = '/books/b.pdf';
+
+    await platform.renameFile('/books/a.pdf', destPath: '/books/b.pdf');
+
+    expect(single().arguments, {
+      'uri': '/books/a.pdf',
+      'destPath': '/books/b.pdf',
+    });
+  });
+
   test('native errors reach the caller as PlatformException', () async {
     reply = PlatformException(code: 'PERMISSION_ERROR', message: 'revoked');
 

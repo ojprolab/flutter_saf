@@ -40,6 +40,7 @@ internal class FlutterSafPluginTest {
       "deleteFile",
       "renameFile",
       "getFileMetadata",
+      "hashFile",
       "releasePermission",
     ).forEach { assertInvalidArguments(it, emptyMap()) }
   }
@@ -66,7 +67,7 @@ internal class FlutterSafPluginTest {
   }
 
   @Test
-  fun renameFile_onAndroidRequiresNewName() {
+  fun renameFile_contentUriRequiresNewName() {
     assertInvalidArguments(
       "renameFile",
       mapOf("uri" to "content://doc/1", "destPath" to "/books/b.pdf"),

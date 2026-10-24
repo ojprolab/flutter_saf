@@ -156,7 +156,9 @@ class FlutterSaf {
 
   // ── renameFile ────────────────────────────────────────────────────────────
   // [newName]  New display name in the same directory, e.g. "book.epub".
-  // [destPath] iOS only — full destination path; takes priority over newName.
+  // [destPath] Full destination path; takes priority over newName.
+  //            Android content:// URIs support newName only —
+  //            destPath alone fails with INVALID_ARGUMENTS there.
   // ⚠️  On Android the URI may change after rename. Use the returned URI.
   // Errors: INVALID_ARGUMENTS | INVALID_URI | UNSUPPORTED |
   //         PERMISSION_ERROR | RENAME_ERROR
@@ -191,6 +193,10 @@ class FlutterSaf {
 
   Future<SAFFileMetadata?> getFileMetadata(String uri) {
     return FlutterSafPlatform.instance.getFileMetadata(uri);
+  }
+
+  Future<String?> hashFile(String uri) {
+    return FlutterSafPlatform.instance.hashFile(uri);
   }
 
   // ── releasePermission ─────────────────────────────────────────────────────
