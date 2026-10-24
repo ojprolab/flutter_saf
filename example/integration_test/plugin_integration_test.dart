@@ -1,25 +1,55 @@
-// This is a basic Flutter integration test.
-//
-// Since integration tests run in a full Flutter application, they can interact
-// with the host side of a plugin implementation, unlike Dart unit tests.
-//
-// For more information about Flutter integration tests, please see
-// https://flutter.dev/to/integration-testing
-
-
-import 'package:flutter_test/flutter_test.dart';
-import 'package:integration_test/integration_test.dart';
+import 'dart:io';
 
 import 'package:flutter_saf/flutter_saf.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('getPlatformVersion test', (WidgetTester tester) async {
-    final FlutterSaf plugin = FlutterSaf();
-    final String? version = await plugin.getPlatformVersion();
-    // The version string depends on the host platform running the test, so
-    // just assert that some non-empty string is returned.
-    expect(version?.isNotEmpty, true);
+  final saf = FlutterSaf();
+  late Directory dir;
+  late File source;
+  final bytes = List<int>.generate(10000, (i) => i % 251);
+
+  setUp(() async {
+    dir = await Directory.systemTemp.createTemp('flutter_saf_it_');
+    source = File('${dir.path}/book.epub');
+    await source.writeAsBytes(bytes);
+  });
+
+  tearDown(() => dir.delete(recursive: true));
+
+  testWidgets('plain file paths are readable', (tester) async {
+    expect(await saf.checkAccess(source.path), isTrue);
+    expect(await saf.checkAccess(Uri.file(source.path).toString()), isTrue);
+    expect(await saf.checkAccess('${dir.path}/missing.epub'), isFalse);
+  });
+
+  testWidgets('readBytesAt returns the requested range', (tester) async {
+    final chunk = await saf.readBytesAt(source.path, 4000, 16);
+
+    expect(chunk, bytes.sublist(4000, 4016));
+  });
+
+  testWidgets('readBytesAt past the end returns what is left', (tester) async {
+    final chunk = await saf.readBytesAt(source.path, 9990, 64);
+
+    expect(chunk, bytes.sublist(9990));
+  });
+
+  testWidgets('copyFileToPath copies every byte of a file uri', (tester) async {
+    final dest = '${dir.path}/copy.epub';
+
+    final copied =
+        await saf.copyFileToPath(Uri.file(source.path).toString(), dest);
+
+    expect(copied, dest);
+    expect(await File(dest).readAsBytes(), bytes);
+  });
+
+  testWidgets('exists tells existing and missing files apart', (tester) async {
+    expect(await saf.exists(source.path), isTrue);
+    expect(await saf.exists('${dir.path}/missing.epub'), isFalse);
   });
 }
