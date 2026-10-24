@@ -19,6 +19,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.mockingDetails
 import org.mockito.Mockito.`when`
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -51,6 +52,7 @@ class FlutterSafPluginFileTest {
   private val abcSha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 
   private lateinit var binding: FlutterPlugin.FlutterPluginBinding
+  private lateinit var messenger: BinaryMessenger
   private lateinit var plugin: FlutterSafPlugin
   private lateinit var dir: File
 
@@ -66,7 +68,8 @@ class FlutterSafPluginFileTest {
 
     binding = mock(FlutterPlugin.FlutterPluginBinding::class.java)
     `when`(binding.applicationContext).thenReturn(context)
-    `when`(binding.binaryMessenger).thenReturn(mock(BinaryMessenger::class.java))
+    messenger = mock(BinaryMessenger::class.java)
+    `when`(binding.binaryMessenger).thenReturn(messenger)
     plugin = FlutterSafPlugin().also { it.onAttachedToEngine(binding) }
   }
 
@@ -221,5 +224,37 @@ class FlutterSafPluginFileTest {
     assertEquals(File(dir, "c.pdf").path, byName.value)
     assertFalse(source.exists())
     assertContentEquals(sample, File(dir, "c.pdf").readBytes())
+  }
+
+  @Test
+  fun readBytesAt_seeksToAnyOffsetAndShortReadsAtTheEnd() {
+    val large = ByteArray(1 shl 20) { (it * 31).toByte() }
+    val path = file("large.pdf", large).path
+    val uri = sharedDocument("large", large)
+
+    listOf(path, uri).forEach { source ->
+      listOf(0L, 4096L, 700_001L).forEach { position ->
+        val reply = invoke("readBytesAt", mapOf("uri" to source, "position" to position, "size" to 100))
+        val from = position.toInt()
+        assertContentEquals(large.copyOfRange(from, from + 100), reply.value as ByteArray, "$source@$position")
+      }
+      val tail = invoke("readBytesAt", mapOf("uri" to source, "position" to large.size - 10L, "size" to 100))
+      assertContentEquals(large.copyOfRange(large.size - 10, large.size), tail.value as ByteArray)
+      val past = invoke("readBytesAt", mapOf("uri" to source, "position" to large.size + 10L, "size" to 100))
+      assertEquals(0, (past.value as ByteArray).size)
+    }
+  }
+
+  @Test
+  fun copyFileToPath_sendsAtMostOneProgressEventPerPercent() {
+    val source = file("large.pdf", ByteArray(1 shl 20))
+
+    invoke(
+      "copyFileToPath",
+      mapOf("uri" to source.path, "destPath" to File(dir, "copy.pdf").path, "bufferSize" to 1024),
+    )
+
+    val sends = mockingDetails(messenger).invocations.count { it.method.name == "send" }
+    assertTrue(sends in 2..102, "sent $sends progress events for 1024 chunks")
   }
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Android: `readBytesAt` seeks to the offset instead of re-reading from the start (falls back to skipping for non-seekable providers)
+* Progress events are sent at most once per whole percent (Android and iOS)
 * Add `hashFile` (SHA-256 hex, streamed natively on Android and iOS)
 * Android: `readFileBytes`, `readBytesAt`, `copyFileToPath` and `getFileMetadata` accept plain paths, `file://` and `content://` URIs
 * Android: file operations use the application context, so they work without an Activity (background, activity recreation)

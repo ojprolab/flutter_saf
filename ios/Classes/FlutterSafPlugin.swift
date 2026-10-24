@@ -153,11 +153,12 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
             defer { scopedURL?.stopAccessingSecurityScopedResource() }
 
             do {
-                self.sendProgress(taskId: taskId, progress: 0.0, status: "scanning")
+                let report = self.progressReporter(taskId: taskId, status: "scanning")
+                report(0.0)
                 var files = try self.collectFilesEnumerator(
                     at: rootURL, extensions: extensions, recursive: recursive,
                     includeHidden: includeHidden, minSize: minSize, maxSize: maxSize,
-                    taskId: taskId, limit: limit
+                    report: report, limit: limit
                 )
 
                 switch sortBy {
@@ -184,7 +185,7 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
     private func collectFilesEnumerator(
         at url: URL, extensions: [String], recursive: Bool,
         includeHidden: Bool, minSize: Int?, maxSize: Int?,
-        taskId: String, limit: Int?
+        report: (Double) -> Void, limit: Int?
     ) throws -> [[String: Any]] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
 
@@ -223,7 +224,7 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                 "lastModified": modMs,
             ])
 
-            sendProgress(taskId: taskId, progress: min(Double(results.count) / 1000.0, 0.9), status: "scanning")
+            report(min(Double(results.count) / 1000.0, 0.9))
         }
 
         return results
@@ -311,7 +312,8 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
         stream.open()
         defer { stream.close() }
 
-        sendProgress(taskId: taskId, progress: 0.0, status: "reading")
+        let report = progressReporter(taskId: taskId, status: "reading")
+        report(0.0)
 
         var data    = Data(capacity: max(fileSize, 0))
         let bufSize = 32 * 1024
@@ -323,7 +325,7 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
                 guard n >= 0 else { throw stream.streamError ?? CocoaError(.fileReadUnknown) }
                 data.append(contentsOf: buf[0..<n])
                 if fileSize > 0 {
-                    sendProgress(taskId: taskId, progress: Double(data.count) / Double(fileSize), status: "reading")
+                    report(Double(data.count) / Double(fileSize))
                 }
             }
             sendProgress(taskId: taskId, progress: 1.0, status: "done")
@@ -390,7 +392,8 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
             var totalCopied = 0
             var buf         = [UInt8](repeating: 0, count: bufferSize)
 
-            sendProgress(taskId: taskId, progress: 0.0, status: "copying")
+            let report = progressReporter(taskId: taskId, status: "copying")
+            report(0.0)
 
             while input.hasBytesAvailable {
                 let bytesRead = input.read(&buf, maxLength: bufferSize)
@@ -402,7 +405,7 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
 
                 totalCopied += bytesRead
                 if fileSize > 0 {
-                    sendProgress(taskId: taskId, progress: Double(totalCopied) / Double(fileSize), status: "copying")
+                    report(Double(totalCopied) / Double(fileSize))
                 }
             }
 
@@ -686,6 +689,16 @@ public class FlutterSafPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelegate
 
     // Combined channel: progress is pushed via invokeMethod("onProgress", …)
     // on the same MethodChannel. No separate EventChannel needed.
+    private func progressReporter(taskId: String, status: String) -> (Double) -> Void {
+        var lastPercent = -1
+        return { [weak self] progress in
+            let percent = Int(progress * 100)
+            guard percent != lastPercent else { return }
+            lastPercent = percent
+            self?.sendProgress(taskId: taskId, progress: progress, status: status)
+        }
+    }
+
     private func sendProgress(taskId: String, progress: Double, status: String) {
         postToMain { [weak self] in
             self?.methodChannel?.invokeMethod("onProgress", arguments: [

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import androidx.documentfile.provider.DocumentFile
@@ -19,6 +20,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.security.MessageDigest
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
@@ -196,7 +200,8 @@ class FlutterSafPlugin :
                 ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "Context unavailable", null) }
 
             try {
-                sendProgress(taskId, 0.0, "scanning")
+                val progress = ProgressReporter(taskId, "scanning")
+                progress.report(0.0)
                 val files = mutableListOf<Map<String, Any?>>()
 
                 collectFilesCursor(
@@ -209,7 +214,7 @@ class FlutterSafPlugin :
                     minSize       = minSize,
                     maxSize       = maxSize,
                     accumulator   = files,
-                    taskId        = taskId,
+                    progress      = progress,
                     limit         = limit,
                 )
 
@@ -240,7 +245,7 @@ class FlutterSafPlugin :
         minSize:       Long?,
         maxSize:       Long?,
         accumulator:   MutableList<Map<String, Any?>>,
-        taskId:        String,
+        progress:      ProgressReporter,
         limit:         Int?,
     ) {
         if (limit != null && accumulator.size >= limit) return
@@ -271,7 +276,7 @@ class FlutterSafPlugin :
                         collectFilesCursor(
                             context, treeUri, c.getString(idCol),
                             extensions, true, includeHidden,
-                            minSize, maxSize, accumulator, taskId, limit
+                            minSize, maxSize, accumulator, progress, limit
                         )
                     }
                 } else {
@@ -293,7 +298,7 @@ class FlutterSafPlugin :
                     ))
                 }
 
-                sendProgress(taskId, (c.position + 1).toDouble() / total * 0.9, "scanning")
+                progress.report((c.position + 1).toDouble() / total * 0.9)
             }
         }
     }
@@ -323,7 +328,8 @@ class FlutterSafPlugin :
                     }
                 }
 
-                sendProgress(taskId, 0.0, "reading")
+                val progress = ProgressReporter(taskId, "reading")
+                progress.report(0.0)
 
                 val bytes = source.open()?.use { stream ->
                     val out    = java.io.ByteArrayOutputStream(if (totalSize > 0) totalSize.toInt() else 32768)
@@ -333,7 +339,7 @@ class FlutterSafPlugin :
                     while (stream.read(buffer).also { n = it } != -1) {
                         out.write(buffer, 0, n)
                         total += n
-                        if (totalSize > 0) sendProgress(taskId, total.toDouble() / totalSize, "reading")
+                        if (totalSize > 0) progress.report(total.toDouble() / totalSize)
                     }
                     out.toByteArray()
                 } ?: return@runInBackground postToMain {
@@ -367,24 +373,11 @@ class FlutterSafPlugin :
                 ?: return@runInBackground postToMain { result.error("NO_CONTEXT", "ContentResolver unavailable", null) }
 
             try {
-                val bytes = source.open()?.use { s ->
-                    var remaining = position
-                    while (remaining > 0) {
-                        val skipped = s.skip(remaining)
-                        if (skipped <= 0) break
-                        remaining -= skipped
+                val bytes = readRangeSeeking(source, position, size)
+                    ?: readRangeSkipping(source, position, size)
+                    ?: return@runInBackground postToMain {
+                        result.error("READ_ERROR", "Cannot open stream for: $fileUri", null)
                     }
-                    val buffer = ByteArray(size)
-                    var totalRead = 0
-                    while (totalRead < size) {
-                        val n = s.read(buffer, totalRead, size - totalRead)
-                        if (n == -1) break
-                        totalRead += n
-                    }
-                    if (totalRead == size) buffer else buffer.copyOf(totalRead)
-                } ?: return@runInBackground postToMain {
-                    result.error("READ_ERROR", "Cannot open stream for: $fileUri", null)
-                }
 
                 postToMain { result.success(bytes) }
             } catch (e: SecurityException) {
@@ -394,6 +387,37 @@ class FlutterSafPlugin :
             }
         }
     }
+
+    private fun readRangeSeeking(source: Source, position: Long, size: Int): ByteArray? {
+        val channel = source.openChannel() ?: return null
+        return channel.use {
+            if (runCatching { it.position(position) }.isFailure) return null
+            val buffer = ByteBuffer.allocate(size)
+            while (buffer.hasRemaining()) {
+                if (it.read(buffer) <= 0) break
+            }
+            val bytes = buffer.array()
+            if (buffer.position() == size) bytes else bytes.copyOf(buffer.position())
+        }
+    }
+
+    private fun readRangeSkipping(source: Source, position: Long, size: Int): ByteArray? =
+        source.open()?.use { s ->
+            var remaining = position
+            while (remaining > 0) {
+                val skipped = s.skip(remaining)
+                if (skipped <= 0) break
+                remaining -= skipped
+            }
+            val buffer = ByteArray(size)
+            var totalRead = 0
+            while (totalRead < size) {
+                val n = s.read(buffer, totalRead, size - totalRead)
+                if (n == -1) break
+                totalRead += n
+            }
+            if (totalRead == size) buffer else buffer.copyOf(totalRead)
+        }
 
     // ── copyFileToPath ────────────────────────────────────────────────────────
     // Arguments: uri*, destPath*, taskId, overwrite, bufferSize
@@ -429,7 +453,8 @@ class FlutterSafPlugin :
 
                 val totalSize = source.size()
 
-                sendProgress(taskId, 0.0, "copying")
+                val progress = ProgressReporter(taskId, "copying")
+                progress.report(0.0)
 
                 source.open()?.use { input ->
                     FileOutputStream(destFile).use { output ->
@@ -439,7 +464,7 @@ class FlutterSafPlugin :
                         while (input.read(buffer).also { n = it } != -1) {
                             output.write(buffer, 0, n)
                             copied += n
-                            if (totalSize > 0) sendProgress(taskId, copied.toDouble() / totalSize, "copying")
+                            if (totalSize > 0) progress.report(copied.toDouble() / totalSize)
                         }
                         output.flush()
                     }
@@ -722,7 +747,23 @@ class FlutterSafPlugin :
 
     // ── Utilities ─────────────────────────────────────────────────────────────
 
-    private class Source(val file: File?, val open: () -> InputStream?, val size: () -> Long)
+    private class Source(
+        val file:        File?,
+        val open:        () -> InputStream?,
+        val openChannel: () -> FileChannel?,
+        val size:        () -> Long,
+    )
+
+    private inner class ProgressReporter(private val taskId: String, private val status: String) {
+        private var lastPercent = -1
+
+        fun report(progress: Double) {
+            val percent = (progress * 100).toInt()
+            if (percent == lastPercent) return
+            lastPercent = percent
+            sendProgress(taskId, progress, status)
+        }
+    }
 
     private fun appContext(): Context? = context ?: activity
 
@@ -734,14 +775,23 @@ class FlutterSafPlugin :
     private fun sourceFor(raw: String): Source? {
         if (!isContentUri(raw)) {
             val file = localFile(raw)
-            return Source(file, { FileInputStream(file) }, { file.length() })
+            return Source(
+                file        = file,
+                open        = { FileInputStream(file) },
+                openChannel = { RandomAccessFile(file, "r").channel },
+                size        = { file.length() },
+            )
         }
         val cr  = appContext()?.contentResolver ?: return null
         val uri = Uri.parse(raw)
         return Source(
-            null,
-            { cr.openInputStream(uri) },
-            { runCatching { cr.openFileDescriptor(uri, "r")?.use { it.statSize } }.getOrNull() ?: -1L },
+            file        = null,
+            open        = { cr.openInputStream(uri) },
+            openChannel = {
+                runCatching { cr.openFileDescriptor(uri, "r") }.getOrNull()
+                    ?.let { ParcelFileDescriptor.AutoCloseInputStream(it).channel }
+            },
+            size        = { runCatching { cr.openFileDescriptor(uri, "r")?.use { it.statSize } }.getOrNull() ?: -1L },
         )
     }
 
